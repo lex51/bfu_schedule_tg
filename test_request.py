@@ -3,12 +3,13 @@ from bs4 import BeautifulSoup as bs
 
 
 
-from pprint import pprint as pp
+# from pprint import pprint as pp
 
 
 print("\n"*10)
-
-url = "https://schedule.kantiana.ru/nextweek"
+action = "week"
+action = "nextweek"
+url = f"https://schedule.kantiana.ru/{action}"
 data = {
     "group_last": "03_ПМИ_23_о_ИП_1",
     "group": None,
@@ -22,23 +23,27 @@ soup = bs(
     # 'html.parser'
     "lxml"
 )
-# pars_res = soup.find_all(
-#     class_="card-body"
-#     # class_=
-# )
 pars_res_list = soup.find_all(
-    # class_="card-body"
-    class_="accordion-body"
+    class_="accordion-item"
     )
-# pp(
-#     # len(pars_res_list)
-#     pars_res_list[2]
-# )
 
-for i in pars_res_list[2:3]: # by days
-    pp(i)
-    for ii in i.find_all(class_="card-body"): # by lessons
-        # pp(ii)
-        pass
-    print("\n")
-    print("*"*8)
+
+for i in pars_res_list:
+    # print(i) # date, next block with id="accordion-header"
+    print(i.find(class_="accordion-button").text.strip())
+    
+    for ii in i.find_all(class_="card"):
+        # print(ii)
+        # interesting json in class="btn btn-success teacherCL"
+        print(f'time - {ii.find(class_="col-sm-3 btn-primary rounded-3 align-middle").text.strip()}')
+        print(f'type - {ii.find(class_="card-text rounded-3 text-center").text.strip()}')
+        print(f'list - {[i.text.strip() for i in ii.find_all(class_="card-text text-center")]}')
+        print(f'link - {next(iter([i["href"] for i in ii.find_all("a", href=True)]), None)}')
+        # print(f'place - {ii.find(class_="card-text text-center").text.strip()}')
+        
+        
+        print("-"*15)
+    
+    
+    
+    print("*"*10)
