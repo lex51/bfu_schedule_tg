@@ -3,7 +3,7 @@ from bs4 import BeautifulSoup as bs
 from typing import NamedTuple, List, Optional
 from datetime import datetime, date
 import re
-import logging
+import json
 
 class LessonContent(NamedTuple):
     lesson_time_start: str  # datetime
@@ -55,16 +55,10 @@ def parse_schedule(data: requests.Response) -> List[DayContent]:
                     .text.strip()
                     .split()
                 )
-                # print(f"{lesson_row_list_time=}")
-                # pp(ii)https://github.com/lex51/speech_processing
-                # print(f'{i.find(class_="col-sm-3 btn-primary rounded-3 align-middle").text.strip().split()}')
-                # print(lesson_row_list_time)
-                # print(f"{lesson_row_list    }")
+
                 lesson = LessonContent(
-                    # lesson_time_start=datetime.strptime(i.find(class_="accordion-button").text.strip().split()[0], "%d.%m.%Y"),
                     lesson_time_start=lesson_row_list_time[2],
                     lesson_name=lesson_row_list[0],
-                    # lesson_pair_number= lesson_row_list_time[0],
                     lesson_pair_number=lesson_row_list_time[0],
                     lecturer_surname=lesson_row_list[1].split()[0],
                     lesson_group=lesson_row_list[-1],
@@ -74,7 +68,6 @@ def parse_schedule(data: requests.Response) -> List[DayContent]:
                     lesson_link=next(
                         iter([i["href"] for i in ii.find_all("a", href=True)]), None
                     ),
-                    # lesson_place=lesson_row_list[2],
                     lesson_corpus=re.search(r'корпус \d{,3}', lesson_place).group().split()[-1] if lesson_place else None,
                     lesson_street=re.search(r'ул.(.*?), д.', lesson_place).group(1) if lesson_place else None,# ул.([\S+. -]+),
                     lesson_cabinet=re.search(r'ауд_\d_(.*?) \(', lesson_place).group(1) if lesson_place else None,
@@ -119,7 +112,6 @@ def get_prepared_schedule_data():
 def shorter_str(
     s: str, one_strip: int = 6, max_splits: int = 2, multiple_strip: int = 3, join:bool=False, 
 ):
-    # print(s)
     if " " in s and not join:
         return " ".join([i[:multiple_strip] for i in s.split()[:max_splits]])
     elif join:
@@ -136,7 +128,7 @@ def shorter_street(
             return s.split()[-1][:single_slice]
         elif "." in s:
             return s.split(".")[-1][:single_slice]
-    return s
+    return ""
 
 
 def generate_row(row_list: list):
@@ -146,39 +138,33 @@ def find_week_day(i:int):
     return ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'][i]
 
 def prepare_markdown_link(s:str):
-    return f"!(link)[{s}]"
+    return f"```[link]({s})```"
+    # return f'</code><a href="{s}">!!!_link_!!!</a><code>'
+    # return f'</pre><a class="inline" href="{s}">!!!_link_!!!</a><pre class="inline">'
+
 
 
 def get_table_with_shedule():
     """i know about tabulate and tables, but wont use mine solution"""
-    logging.info("some")
     schedule_weeeks: List[DayContent] = get_prepared_schedule_data()
-
-    # print("+++++++++++++++++++++++++")
     formatted_rows_list = []
     if True:
         for i in schedule_weeeks:
             if i:
                 # print(i.lessons_day)
                 lesson_day = i.lessons_day
-                formatted_day_line = f"*** {lesson_day.date()} - {find_week_day(lesson_day.weekday())} *** "
+                formatted_day_line = f"-- {lesson_day.date()} - {find_week_day(lesson_day.weekday())} --"
                 formatted_rows_list.append(
-                    # str(lesson_day.date())
                     formatted_day_line
                     )
                 for ii in i.lessons_list:
-                    # print(ii)
-                    # print("-"*10)
-                    # select street or webinar
-                    lect_place = ''
+                    lect_place = '      '
                     if ii.lesson_link:
-                        # print(f"link - {ii.lesson_link}")
                         if ii.lesson_link == 'webinar':
                             lect_place = "~ready"
                         else:
                             lect_place = prepare_markdown_link(ii.lesson_link)
                     elif ii.lesson_street:
-                        # print(f"strt - {shorter_street(ii.lesson_street)}")
                         lect_place = ' '.join([
                             shorter_street(ii.lesson_street), 'k'+ii.lesson_corpus
                         ])
@@ -191,7 +177,6 @@ def get_table_with_shedule():
                                 shorter_str(ii.lesson_name),
                                 shorter_str(ii.lesson_type, one_strip=4, max_splits=1),
                                 shorter_str(ii.lecturer_surname, one_strip=5),
-                                # ii.lesson_link if ii.lesson_link else "    ",
                                 lect_place,
                                 shorter_str(
                                     ii.lesson_group,
@@ -200,33 +185,55 @@ def get_table_with_shedule():
                                     multiple_strip=2,
                                     join=True,
                                 ),
-                                # shorter_street(ii.lesson_street),
-
                             ]
                         )
                     )
-                # print("*" * 10)
-                # formatted_rows_list.append("\n")
-            # pass
     return formatted_rows_list
 
 
 class Conf:
-
     pass
 
+def create_and_prepare_msg():
+    l = get_table_with_shedule()
+    msg = '\n'.join(l)
+    msg = f'```{msg}```'
+    return msg
 
 def send_tg_msg(l:list):
     msg = '\n'.join(l)
-    msg = f"```\n{msg}\n```"
+    msg = f'```{msg}```'
+    # msg = f'<pre class="inline">\n{msg}\n</pre>'
+    # msg = f"<code>\n{msg}\n</code>"
+    # msg = f"<pre><code>\n{msg}\n</code></pre>"
+
     # print(msg)
+    url = f"https://api.telegram.org/bot{Conf.tg_token}/sendMessage?chat_id={Conf.tg_chat}&text={msg}&disable_notification=true&parse_mode=html"
     url = f"https://api.telegram.org/bot{Conf.tg_token}/sendMessage?chat_id={Conf.tg_chat}&text={msg}&disable_notification=true&parse_mode=markdown"
+
     # print(url)
     tg_response = requests.get(url).json()
     print(tg_response)
 
 # get_prepared_schedule_data()
 # print(get_table_with_shedule())
-send_tg_msg(
-    get_table_with_shedule()
-)
+# send_tg_msg(
+#     get_table_with_shedule()
+# )
+
+
+def handler(event, context):
+    body = json.loads(event['body'])
+    return {
+        'statusCode': 200,
+        'headers': {
+            'Content-Type': 'application/json'
+        },
+        'body': json.dumps({
+            'method': 'sendMessage',
+            'chat_id': body['message']['chat']['id'],
+            'text':  create_and_prepare_msg(),
+            'parse_mode': 'markdown'
+        }),
+        'isBase64Encoded': False
+    }
