@@ -2,8 +2,8 @@ import requests
 from bs4 import BeautifulSoup as bs
 from typing import NamedTuple, List, Optional
 from datetime import datetime, date
+import re
 import logging
-
 
 class LessonContent(NamedTuple):
     lesson_time_start: str  # datetime
@@ -11,9 +11,12 @@ class LessonContent(NamedTuple):
     lesson_pair_number: int
     lesson_name: str
     lecturer_surname: str
-    lesson_place: Optional[str]
-    lesson_link: Optional[str]
-    lesson_group: str
+    lesson_place: Optional[str] = None
+    lesson_link: Optional[str] = None
+    lesson_group: Optional[str] = None
+    lesson_corpus: Optional[int] = None
+    lesson_street: Optional[str] = None
+    lesson_cabinet: Optional[str] = None
 
 
 class DayContent(NamedTuple):
@@ -45,6 +48,7 @@ def parse_schedule(data: requests.Response) -> List[DayContent]:
                 lesson_row_list = [
                     i.text.strip() for i in ii.find_all(class_="card-text text-center")
                 ]
+                lesson_place=lesson_row_list[2]
                 # print(f"{lesson_row_list=}")
                 lesson_row_list_time = (
                     ii.find(class_="col-sm-3 btn-primary rounded-3 align-middle")
@@ -52,7 +56,7 @@ def parse_schedule(data: requests.Response) -> List[DayContent]:
                     .split()
                 )
                 # print(f"{lesson_row_list_time=}")
-                # pp(ii)
+                # pp(ii)https://github.com/lex51/speech_processing
                 # print(f'{i.find(class_="col-sm-3 btn-primary rounded-3 align-middle").text.strip().split()}')
                 # print(lesson_row_list_time)
                 # print(f"{lesson_row_list    }")
@@ -70,8 +74,12 @@ def parse_schedule(data: requests.Response) -> List[DayContent]:
                     lesson_link=next(
                         iter([i["href"] for i in ii.find_all("a", href=True)]), None
                     ),
-                    lesson_place=lesson_row_list[2],
+                    # lesson_place=lesson_row_list[2],
+                    lesson_corpus=re.search(r'корпус \d{,3}', lesson_place).group().split()[-1] if lesson_place else None,
+                    lesson_street=re.search(r'ул.(.*?), д.', lesson_place).group(1) if lesson_place else None,# ул.([\S+. -]+),
+                    lesson_cabinet=re.search(r'ауд_\d_(.*?) \(', lesson_place).group(1) if lesson_place else None,
                 )
+
                 day_lectures.append(lesson)
             day_shedule = DayContent(
                 lessons_day=datetime.strptime(
@@ -92,27 +100,53 @@ def row_schedule_on_week(action):
 
 def get_prepared_schedule_data():
     """
-    getting schedule for one week - if now if middle - getting next full week"""
-    days: list = row_schedule_on_week("week")
-    if date.today().weekday() == 0:  # monday
+    getting schedule for one week - if now
+    if in middle - getting next full week
+    and filter days
+    """
+    days: List[DayContent] = row_schedule_on_week("week")
+    current_day = date.today()
+    if current_day.weekday() == 0:  # monday
         pass
     else:
         days.extend(row_schedule_on_week("nextweek"))
-
-    return days
+    
+    return filter(
+        lambda d : d.lessons_day.date() >= current_day, days
+    )
 
 
 def shorter_str(
-    s: str, one_strip: int = 6, max_splits: int = 2, multiple_strip: int = 3
+    s: str, one_strip: int = 6, max_splits: int = 2, multiple_strip: int = 3, join:bool=False, 
 ):
-    if " " in s:
+    # print(s)
+    if " " in s and not join:
         return " ".join([i[:multiple_strip] for i in s.split()[:max_splits]])
+    elif join:
+        return "".join(i for i in s.split())[:multiple_strip]
     else:
         return s[:one_strip]
+    
+
+def shorter_street(
+        s: str, single_slice:int=3
+):
+    if s:
+        if " " in s:
+            return s.split()[-1][:single_slice]
+        elif "." in s:
+            return s.split(".")[-1][:single_slice]
+    return s
 
 
 def generate_row(row_list: list):
-    return "\t".join([i for i in row_list])
+    return "\t".join([i if i else "  "  for i in row_list])
+
+def find_week_day(i:int):
+    return ['пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'вс'][i]
+
+def prepare_markdown_link(s:str):
+    return f"!(link)[{s}]"
 
 
 def get_table_with_shedule():
@@ -120,15 +154,36 @@ def get_table_with_shedule():
     logging.info("some")
     schedule_weeeks: List[DayContent] = get_prepared_schedule_data()
 
-    print("+++++++++++++++++++++++++")
+    # print("+++++++++++++++++++++++++")
+    formatted_rows_list = []
     if True:
         for i in schedule_weeeks:
             if i:
-                print(i.lessons_day)
+                # print(i.lessons_day)
+                lesson_day = i.lessons_day
+                formatted_day_line = f"*** {lesson_day.date()} - {find_week_day(lesson_day.weekday())} *** "
+                formatted_rows_list.append(
+                    # str(lesson_day.date())
+                    formatted_day_line
+                    )
                 for ii in i.lessons_list:
-                    # pp(ii)
+                    # print(ii)
                     # print("-"*10)
-                    print(
+                    # select street or webinar
+                    lect_place = ''
+                    if ii.lesson_link:
+                        # print(f"link - {ii.lesson_link}")
+                        if ii.lesson_link == 'webinar':
+                            lect_place = "~ready"
+                        else:
+                            lect_place = prepare_markdown_link(ii.lesson_link)
+                    elif ii.lesson_street:
+                        # print(f"strt - {shorter_street(ii.lesson_street)}")
+                        lect_place = ' '.join([
+                            shorter_street(ii.lesson_street), 'k'+ii.lesson_corpus
+                        ])
+
+                    formatted_rows_list.append(
                         generate_row(
                             [
                                 ii.lesson_time_start,
@@ -136,23 +191,42 @@ def get_table_with_shedule():
                                 shorter_str(ii.lesson_name),
                                 shorter_str(ii.lesson_type, one_strip=4, max_splits=1),
                                 shorter_str(ii.lecturer_surname, one_strip=5),
-                                ii.lesson_place.split()[0]
-                                if ii.lesson_place
-                                else "    ",
-                                ii.lesson_link if ii.lesson_link else "    ",
+                                # ii.lesson_link if ii.lesson_link else "    ",
+                                lect_place,
                                 shorter_str(
                                     ii.lesson_group,
                                     max_splits=2,
                                     one_strip=3,
-                                    multiple_strip=3,
+                                    multiple_strip=2,
+                                    join=True,
                                 ),
+                                # shorter_street(ii.lesson_street),
+
                             ]
                         )
                     )
-                print("*" * 10)
-            pass
-    return None
+                # print("*" * 10)
+                # formatted_rows_list.append("\n")
+            # pass
+    return formatted_rows_list
 
+
+class Conf:
+
+    pass
+
+
+def send_tg_msg(l:list):
+    msg = '\n'.join(l)
+    msg = f"```\n{msg}\n```"
+    # print(msg)
+    url = f"https://api.telegram.org/bot{Conf.tg_token}/sendMessage?chat_id={Conf.tg_chat}&text={msg}&disable_notification=true&parse_mode=markdown"
+    # print(url)
+    tg_response = requests.get(url).json()
+    print(tg_response)
 
 # get_prepared_schedule_data()
-print(get_table_with_shedule())
+# print(get_table_with_shedule())
+send_tg_msg(
+    get_table_with_shedule()
+)
